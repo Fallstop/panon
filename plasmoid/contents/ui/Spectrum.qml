@@ -214,6 +214,8 @@ Item{
     ShaderEffect {
         id:mainSE
         supportsAtlasTextures: false
+        // Provide a default texture for the built-in fragment shader that runs before the custom shaders load.
+        property variant source: shaderTextureImage
         readonly property bool colorSpaceHSL: cfg.colorSpaceHSL
         readonly property bool colorSpaceHSLuv:cfg.colorSpaceHSLuv
 
@@ -315,6 +317,8 @@ Item{
             width: mainSE.iResolution.x
             height: mainSE.iResolution.y
             supportsAtlasTextures: false
+            // Avoid "source" warnings before the buffer shader is available.
+            property variant source: shaderTextureImage
             readonly property bool colorSpaceHSL: mainSE.colorSpaceHSL
             readonly property bool colorSpaceHSLuv:mainSE.colorSpaceHSLuv
             readonly property int hueFrom:mainSE.hueFrom

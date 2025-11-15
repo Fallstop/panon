@@ -24,8 +24,8 @@ Item{
     WebSocketServer {
         id: server
         listen: true
-        onClientConnected: {
-            webSocket.onTextMessageReceived.connect(function(message) {
+        onClientConnected: function(clientSocket) {
+            clientSocket.onTextMessageReceived.connect(function(message) {
                 queue.push(message)
             });
         }
@@ -64,7 +64,7 @@ Item{
     Plasma5Support.DataSource {
         engine: 'executable'
         connectedSources: [startBackEnd]
-        onNewData:{
+        onNewData: function(sourceName, data) {
             // Show back-end errors.
             console.log(data.stdout)
             console.log(data.stderr)

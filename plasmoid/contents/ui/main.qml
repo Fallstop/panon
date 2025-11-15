@@ -8,9 +8,13 @@ PlasmoidItem {
 
     preferredRepresentation: Plasmoid.compactRepresentation
 
-    compactRepresentation: Spectrum{}
+    compactRepresentation: Component {
+        Spectrum{}
+    }
 
-    fullRepresentation: Spectrum{}
+    fullRepresentation: Component {
+        Spectrum{}
+    }
 
     toolTipItem: cfg.hideTooltip?tooltipitem:null
 

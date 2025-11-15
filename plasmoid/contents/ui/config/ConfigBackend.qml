@@ -185,7 +185,7 @@ Kirigami.FormLayout {
         connectedSources: [
             sh_get_pa_devices
         ]
-        onNewData: {
+    onNewData: function(sourceName, data) {
 
             if(sourceName==sh_get_pa_devices){
                 pdItems.append({name:'default',id:'default'})

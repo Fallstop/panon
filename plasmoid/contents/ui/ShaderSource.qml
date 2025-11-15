@@ -33,7 +33,7 @@ Plasma5Support.DataSource {
 
     connectedSources: [cmd]
 
-    onNewData:{
+    onNewData: function(sourceName, data){
         if(cfg.debugBackend){
             console.log(cmd)
             console.log(data.stderr)

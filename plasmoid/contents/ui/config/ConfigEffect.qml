@@ -76,7 +76,7 @@ Kirigami.FormLayout {
         // Text field components used to represent the arguments of the visual effect.
         property var textfieldlst:[]
         
-        onNewData: {
+    onNewData: function(sourceName, data) {
             if(sourceName==sh_read_effect_hint){
                 hint.text=(data.stdout);
             }else if(sourceName==sh_read_effect_args){

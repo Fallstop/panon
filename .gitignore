@@ -101,5 +101,8 @@ ENV/
 # mkdocs documentation
 /site
 
+# Local working notes
+local-docs/
+
 # mypy
 .mypy_cache/
