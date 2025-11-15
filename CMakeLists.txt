@@ -4,9 +4,9 @@ project(panon VERSION 6.0.1)
 
 find_package(ECM 1.4.0 REQUIRED NO_MODULE)
 set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
-
+find_package(KF6Config REQUIRED) 
 find_package(Plasma REQUIRED VERSION 6)
-find_package(KF6 REQUIRED COMPONENTS I18n)
+find_package(Qt6 REQUIRED COMPONENTS Core Qml Quick) 
 
 add_subdirectory(shaders)
 add_subdirectory(translations)

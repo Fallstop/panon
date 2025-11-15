@@ -65,4 +65,9 @@ Plasma5Support.DataSource {
         texture_uri=obj.texture
         error_message=''
     }
+
+    onError_messageChanged: {
+        if(error_message && error_message.length)
+            console.error('[Panon] Shader builder error: '+error_message)
+    }
 }

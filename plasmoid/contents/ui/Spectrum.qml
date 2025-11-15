@@ -12,6 +12,143 @@ Item{
     id:root
     readonly property var cfg:plasmoid.configuration
 
+    property bool fatalShaderErrorHandled: false
+    property var shaderMonitorStates: ({})
+
+    function asString(value){
+        if(value === undefined || value === null)
+            return ''
+        if(typeof value === 'string')
+            return value
+        if(value && typeof value.toString === 'function')
+            return value.toString()
+        return ''
+    }
+
+    function describeShaderStatus(statusValue){
+        var numericValue = Number(statusValue)
+        if(!isNaN(numericValue)){
+            var statusNames = {
+                0: 'Null',
+                1: 'Ready',
+                2: 'Loading',
+                3: 'Error'
+            }
+            if(statusNames.hasOwnProperty(numericValue))
+                return statusNames[numericValue]
+        }
+        if(typeof ShaderEffect !== 'undefined'){
+            switch(statusValue){
+            case ShaderEffect.Null:
+                return 'Null'
+            case ShaderEffect.Ready:
+                return 'Ready'
+            case ShaderEffect.Loading:
+                return 'Loading'
+            case ShaderEffect.Error:
+                return 'Error'
+            }
+        }
+        return ''+statusValue
+    }
+
+    function toFileUrl(path){
+        var normalized = asString(path).trim()
+        if(!normalized.length)
+            return ''
+        if(normalized.startsWith('file://')
+            || normalized.startsWith('qrc:/')
+            || normalized.startsWith(':/')
+            || normalized.indexOf('://') !== -1)
+            return normalized
+        if(normalized.startsWith('/'))
+            return 'file://' + normalized
+        return Qt.resolvedUrl(normalized)
+    }
+
+    function monitorShaderEffect(effectItem, stage, shaderSource){
+        if(!effectItem || fatalShaderErrorHandled)
+            return
+
+        var normalizedShader = asString(shaderSource)
+        var normalizedShaderTrimmed = normalizedShader.trim()
+        var monitorState = shaderMonitorStates[stage]
+        if(!monitorState){
+            monitorState = {}
+            shaderMonitorStates[stage] = monitorState
+        }
+        var statusValue = effectItem.status
+        var logText = asString(effectItem.log)
+        var fragmentSource = asString(effectItem.fragmentShader)
+        var trimmedFragment = fragmentSource.trim()
+        var statusName = describeShaderStatus(statusValue)
+
+        if(monitorState.lastStatusName !== statusName){
+            monitorState.lastStatusName = statusName
+            console.warn('[Panon] ShaderEffect '+stage+' status -> '+statusName+' (shader='+ (fragmentSource || normalizedShader || '<empty>') +')')
+        }
+
+        if(logText.length && monitorState.lastShaderLog !== logText){
+            monitorState.lastShaderLog = logText
+            console.error('[Panon] ShaderEffect '+stage+' log update:\n'+logText)
+        }
+
+        if(!trimmedFragment.length && normalizedShaderTrimmed.length){
+            if(!monitorState.loggedMissingFragment){
+                monitorState.loggedMissingFragment = true
+                console.warn('[Panon] ShaderEffect '+stage+' fragmentShader empty while expecting '+normalizedShader)
+            }
+        }else if(monitorState.loggedMissingFragment){
+            monitorState.loggedMissingFragment = false
+        }
+
+        var indicatesFailure = logText.indexOf('Failed') !== -1
+            || logText.indexOf('No GLSL shader code found') !== -1
+            || logText.indexOf('Failed to build graphics pipeline state') !== -1
+
+        if((typeof ShaderEffect !== 'undefined' && statusValue === ShaderEffect.Error) || indicatesFailure){
+            root.logAndExitOnShaderFailure(stage, logText, shaderSource || fragmentSource)
+            return
+        }
+
+    if(normalizedShaderTrimmed.length > 0 && trimmedFragment.length === 0)
+            root.logAndExitOnShaderFailure(stage, 'Shader fragment source missing', shaderSource)
+    }
+
+    function logAndExitOnShaderFailure(stage, shaderLog, shaderSource){
+        if(fatalShaderErrorHandled)
+            return
+        fatalShaderErrorHandled = true
+        console.error('[Panon] Fatal '+stage+' shader compilation error. Exiting plasmoid to avoid endless retries.')
+        if(shaderLog && shaderLog.length)
+            console.error('[Panon] Shader log:\n'+shaderLog)
+        else
+            console.error('[Panon] Shader log was empty.')
+        if(cfg && cfg.visualEffect){
+            var effectName = cfg.visualEffect.name || '<unnamed>'
+            console.error('[Panon] Visual effect: '+effectName)
+            try{
+                console.error('[Panon] Visual effect payload:\n'+JSON.stringify(cfg.visualEffect, null, 2))
+            }catch(e){
+                console.error('[Panon] Failed to stringify visual effect configuration: '+e)
+            }
+        }
+        if(shaderSource && shaderSource.length){
+            var lowerSource = shaderSource.toLowerCase()
+            if(lowerSource.endsWith('.qsb')){
+                console.error('[Panon] Shader binary path: '+shaderSource)
+            }else{
+                var lines = shaderSource.split('\n')
+                var maxLines = 120
+                var snippet = lines.slice(0, maxLines).join('\n')
+                console.error('[Panon] Shader source (first '+Math.min(lines.length, maxLines)+' lines):\n'+snippet)
+            }
+        }else{
+            console.error('[Panon] Shader source unavailable.')
+        }
+        Qt.quit()
+    }
+
     property bool vertical: (plasmoid.formFactor == PlasmaCore.Types.Vertical)
 
     // Layout.minimumWidth:  cfg.autoHide ? animatedMinimum: -1
@@ -43,8 +180,40 @@ Item{
     Layout.fillHeight: vertical? cfg.autoExtend :false
 
 
+    Image {
+        id: shaderTextureImage
+        visible: false
+        cache: false
+        asynchronous: true
+        source: root.toFileUrl(shaderSourceReader.texture_uri)
+    }
+
+    Timer {
+        id: shaderMonitorTimer
+        interval: 500
+        repeat: true
+        running: true
+        triggeredOnStart: true
+        onTriggered: {
+            if(root.fatalShaderErrorHandled){
+                shaderMonitorTimer.stop()
+                return
+            }
+            var imageSourceValue = root.asString(shaderSourceReader.image_shader_source)
+            if(imageSourceValue.trim().length || root.asString(mainSE.fragmentShader).trim().length)
+                root.monitorShaderEffect(mainSE, 'image', imageSourceValue)
+
+            if(bufferSES && bufferSES.sourceItem){
+                var bufferSourceValue = root.asString(shaderSourceReader.buffer_shader_source)
+                if(bufferSourceValue.trim().length || root.asString(bufferSES.sourceItem.fragmentShader).trim().length)
+                    root.monitorShaderEffect(bufferSES.sourceItem, 'buffer', bufferSourceValue)
+            }
+        }
+    }
+
     ShaderEffect {
         id:mainSE
+        supportsAtlasTextures: false
         readonly property bool colorSpaceHSL: cfg.colorSpaceHSL
         readonly property bool colorSpaceHSLuv:cfg.colorSpaceHSLuv
 
@@ -92,7 +261,7 @@ Item{
         property variant iChannel0
         property variant iChannel1
         readonly property variant iChannel2:bufferSES
-        readonly property variant iChannel3:Image{source:'file://'+shaderSourceReader.texture_uri}
+    readonly property variant iChannel3: shaderTextureImage.source.length?shaderTextureImage:null
 
         property int coord_gravity:root.gravity
         property bool coord_inversion:cfg.inversion
@@ -120,7 +289,19 @@ Item{
 
         anchors.fill: parent
         blending: true
-        fragmentShader:shaderSourceReader.image_shader_source
+        fragmentShader:root.toFileUrl(shaderSourceReader.image_shader_source)
+
+        onStatusChanged: {
+            root.monitorShaderEffect(mainSE, 'image', root.asString(shaderSourceReader.image_shader_source))
+        }
+
+        onLogChanged: {
+            root.monitorShaderEffect(mainSE, 'image', root.asString(shaderSourceReader.image_shader_source))
+        }
+
+        onFragmentShaderChanged: {
+            root.monitorShaderEffect(mainSE, 'image', root.asString(shaderSourceReader.image_shader_source))
+        }
     }
 
     ShaderEffectSource {
@@ -133,6 +314,7 @@ Item{
         sourceItem: ShaderEffect {
             width: mainSE.iResolution.x
             height: mainSE.iResolution.y
+            supportsAtlasTextures: false
             readonly property bool colorSpaceHSL: mainSE.colorSpaceHSL
             readonly property bool colorSpaceHSLuv:mainSE.colorSpaceHSLuv
             readonly property int hueFrom:mainSE.hueFrom
@@ -179,7 +361,19 @@ Item{
             readonly property int fParam8:mainSE.fParam8
             readonly property int fParam9:mainSE.fParam9
 
-            fragmentShader:shaderSourceReader.buffer_shader_source
+            fragmentShader:root.toFileUrl(shaderSourceReader.buffer_shader_source)
+
+            onStatusChanged: {
+                root.monitorShaderEffect(bufferSES.sourceItem, 'buffer', root.asString(shaderSourceReader.buffer_shader_source))
+            }
+
+            onLogChanged: {
+                root.monitorShaderEffect(bufferSES.sourceItem, 'buffer', root.asString(shaderSourceReader.buffer_shader_source))
+            }
+
+            onFragmentShaderChanged: {
+                root.monitorShaderEffect(bufferSES.sourceItem, 'buffer', root.asString(shaderSourceReader.buffer_shader_source))
+            }
         }
     }
 
@@ -197,7 +391,7 @@ Item{
             height: 1
             property int dftSize:glDFTSE.width
             property int bufferSize:waveBufferSE.width
-            fragmentShader:shaderSourceReader.gldft_source
+            fragmentShader:root.toFileUrl(shaderSourceReader.gldft_source)
 
             readonly property variant waveBuffer:ShaderEffectSource {
                 id:waveBufferSES
@@ -212,15 +406,15 @@ Item{
                     property int bufferSize:waveBufferSE.width
                     property int newWaveSize:newWave?newWave.width:0
                     readonly property variant waveBuffer:waveBufferSES
-                    fragmentShader:shaderSourceReader.wave_buffer_source
+                    fragmentShader:root.toFileUrl(shaderSourceReader.wave_buffer_source)
                 }
             }
         }
     }
     */
 
-    readonly property bool loadImageShaderSource:   shaderSourceReader.image_shader_source.trim().length>0
-    readonly property bool loadBufferShaderSource:  shaderSourceReader.buffer_shader_source.trim().length>0
+    readonly property bool loadImageShaderSource:   root.asString(shaderSourceReader.image_shader_source).trim().length>0
+    readonly property bool loadBufferShaderSource:  root.asString(shaderSourceReader.buffer_shader_source).trim().length>0
     readonly property bool failCompileImageShader:  loadImageShaderSource && false // (mainSE.status==ShaderEffect.Error)
     readonly property bool failCompileBufferShader: loadBufferShaderSource && false // (bufferSES.sourceItem.status==ShaderEffect.Error)
     property string fps_message:""
@@ -232,7 +426,7 @@ Item{
     QQC2.Label {
         id:console_output
         anchors.fill: parent
-        color: PlasmaCore.ColorScope.textColor
+        color: PlasmaCore.Theme.textColor
         text:error_message+(cfg.showFps?fps_message:"")
     }
 
