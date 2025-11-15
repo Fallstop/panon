@@ -2,30 +2,32 @@ import QtQuick 2.0
 import QtQuick.Layouts 1.1
 import QtQuick.Controls 2.0 as QQC2
 
+import org.kde.kcmutils as KCM
 import org.kde.kirigami 2.3 as Kirigami
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasma5support as Plasma5Support
 
 import "utils.js" as Utils
 
-Kirigami.FormLayout {
-
-    anchors.right: parent.right
-    anchors.left: parent.left
-
+KCM.SimpleKCM {
+    id: root
 
     property alias cfg_reduceBass: reduceBass.checked
     property alias cfg_glDFT: glDFT.checked
     property alias cfg_debugBackend: debugBackend.checked
-
     property alias cfg_bassResolutionLevel: bassResolutionLevel.currentIndex
-
-    property alias cfg_backendIndex:backend.currentIndex
-
+    property alias cfg_backendIndex: backend.currentIndex
     property alias cfg_fifoPath: fifoPath.text
-
     property int cfg_deviceIndex
     property string cfg_pulseaudioDevice
+
+    readonly property string sh_get_devices: Utils.chdir_scripts_root() + 'python3 -m panon.backend.get_devices'
+    readonly property string sh_get_pa_devices: Utils.chdir_scripts_root() + 'python3 -m panon.backend.get_pa_devices'
+
+    Kirigami.FormLayout {
+
+        anchors.right: parent.right
+        anchors.left: parent.left
 
 
     RowLayout {
@@ -176,41 +178,40 @@ Kirigami.FormLayout {
         }
     }
 
-    readonly property string sh_get_devices:Utils.chdir_scripts_root()+'python3 -m panon.backend.get_devices'
-    readonly property string sh_get_pa_devices:Utils.chdir_scripts_root()+'python3 -m panon.backend.get_pa_devices'
+        Plasma5Support.DataSource {
+            //id: getOptionsDS
+            engine: 'executable'
+            connectedSources: [
+                root.sh_get_pa_devices
+            ]
+        onNewData: function(sourceName, data) {
 
-    Plasma5Support.DataSource {
-        //id: getOptionsDS
-        engine: 'executable'
-        connectedSources: [
-            sh_get_pa_devices
-        ]
-    onNewData: function(sourceName, data) {
+                if(sourceName==root.sh_get_pa_devices){
+                    pdItems.append({name:'default',id:'default'})
+                    var lst=JSON.parse(data.stdout)
+                    for(var i in lst)
+                        pdItems.append(lst[i])
+                    if(lst.length>1){
+                        pdItems.append({name:i18n("Monitor of Current Device"),id:'smart'})
+                        pdItems.append({name:i18n("Mixing All Speakers"),id:'allspeakers'})
+                        pdItems.append({name:i18n("Mixing All Microphones"),id:'allmicrophones'})
+                        pdItems.append({name:i18n("Mixing All Microphones and Speakers"),id:'all'})
+                    }
 
-            if(sourceName==sh_get_pa_devices){
-                pdItems.append({name:'default',id:'default'})
-                var lst=JSON.parse(data.stdout)
-                for(var i in lst)
-                    pdItems.append(lst[i])
-                if(lst.length>1){
-                    pdItems.append({name:i18n("Monitor of Current Device"),id:'smart'})
-                    pdItems.append({name:i18n("Mixing All Speakers"),id:'allspeakers'})
-                    pdItems.append({name:i18n("Mixing All Microphones"),id:'allmicrophones'})
-                    pdItems.append({name:i18n("Mixing All Microphones and Speakers"),id:'all'})
+                    for(var i=0;i<pulseaudioDevice.count;i++)
+                        if(pdItems.get(i).id==cfg_pulseaudioDevice)
+                            pulseaudioDevice.currentIndex=i;
+                }else if(sourceName==root.sh_get_devices){
+                    var lst=JSON.parse(data.stdout)
+                    cbItems.append({name:'auto',d_index:-1})
+                    for(var i in lst)
+                        cbItems.append({name:lst[i]['name'],d_index:lst[i]['index']})
+                    for(var i=0;i<deviceIndex.count;i++)
+                        if(cbItems.get(i).d_index==cfg_deviceIndex)
+                            deviceIndex.currentIndex=i;
                 }
-
-                for(var i=0;i<pulseaudioDevice.count;i++)
-                    if(pdItems.get(i).id==cfg_pulseaudioDevice)
-                        pulseaudioDevice.currentIndex=i;
-            }else if(sourceName==sh_get_devices){
-                var lst=JSON.parse(data.stdout)
-                cbItems.append({name:'auto',d_index:-1})
-                for(var i in lst)
-                    cbItems.append({name:lst[i]['name'],d_index:lst[i]['index']})
-                for(var i=0;i<deviceIndex.count;i++)
-                    if(cbItems.get(i).d_index==cfg_deviceIndex)
-                        deviceIndex.currentIndex=i;
             }
         }
     }
 }
+
